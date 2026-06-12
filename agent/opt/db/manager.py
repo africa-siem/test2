@@ -86,11 +86,11 @@ class DatabaseManager:
                     FROM signatures
                     WHERE source = ?
                     AND (
-                        json_extract(metadata, '$.rule_id') = ?
+                        id = ?
                         OR json_extract(metadata, '$.rule_id') = ?
                     )
                     LIMIT 1
-                """, (source, str(rule_id), int(rule_id) if str(rule_id).isdigit() else rule_id))
+                """, (source, int(rule_id) if str(rule_id).isdigit() else -1, str(rule_id)))
                 row = cur.fetchone()
                 return dict(row) if row else None
         except Exception as e:
@@ -607,9 +607,16 @@ class DatabaseManager:
     # ========================================================================
     # EMAIL LOGS (schéma M2 : email_uuid NOT NULL, related_alert_id)
     # ========================================================================
+    _EMAIL_STATUS_MAP = {
+        "sent": "SENT", "SENT": "SENT", "failed": "FAILED", "FAILED": "FAILED",
+        "bounced": "BOUNCED", "BOUNCED": "BOUNCED", "pending": "PENDING",
+        "PENDING": "PENDING", "deduplicated": "PENDING", "rate_limited": "PENDING",
+    }
+
     def insert_email_log(self, recipient, subject, status, alert_id=None,
                          error_message=None):
         try:
+            status = self._EMAIL_STATUS_MAP.get(status, "FAILED")
             now = now_sqlite()
             with self.cursor() as cur:
                 cur.execute("""
@@ -621,7 +628,7 @@ class DatabaseManager:
                     str(uuid.uuid4()),
                     recipient[:200], subject[:500], status, alert_id,
                     error_message, now,
-                    now if status in ("sent", "SENT") else None,
+                    now if status == "SENT" else None,
                 ))
                 return cur.lastrowid
         except Exception as e:
